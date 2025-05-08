@@ -1,0 +1,2796 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PtvAlert网页版</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <!-- 添加Firebase SDK 脚本 -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', sans-serif;
+            -webkit-tap-highlight-color: transparent; /* 移除移动端点击时的高亮 */
+        }
+        
+        body {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #1c1c1e;
+            color: #fff;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100vh;
+            z-index: 1;
+        }
+        
+        /* 弹幕容器样式 */
+        .danmaku-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 180px; /* 增加容器高度 */
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 2000; /* Increased z-index to be above user menu */
+            background-color: rgba(0, 0, 0, 0.15);
+        }
+        
+        /* 弹幕项目样式 */
+        .danmaku-item {
+            position: absolute;
+            white-space: nowrap;
+            color: #333;
+            font-size: 16px;
+            font-weight: 500;
+            padding: 6px 16px;
+            border-radius: 20px;
+            background-color: rgba(255, 255, 255, 0.75);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transform: translateX(100vw);
+            animation: danmaku-move 15s linear forwards;
+            margin-bottom: 16px; /* Increased from 8px to 16px for more spacing */
+            max-height: 20px; /* 控制弹幕高度 */
+            overflow: visible; /* 确保文本不会被截断 */
+            display: flex; /* 使用弹性布局 */
+            align-items: center; /* 垂直居中文本 */
+        }
+        
+        /* 移动端弹幕适配 */
+        @media (max-width: 768px) {
+            .danmaku-item {
+                font-size: 14px;
+                padding: 4px 12px;
+            }
+        }
+        
+        /* 不同类型的弹幕 */
+        .danmaku-item.important {
+            background-color: rgba(255, 245, 210, 0.85);
+            border-left: 3px solid #f0c040;
+            color: #805000;
+            font-weight: bold;
+        }
+        
+        .danmaku-item.service {
+            background-color: rgba(230, 245, 255, 0.85);
+            border-left: 3px solid #40a0f0;
+            color: #104080;
+        }
+        
+        .danmaku-item.safety {
+            background-color: rgba(255, 230, 230, 0.85);
+            border-left: 3px solid #f04050;
+            color: #801020;
+            font-weight: bold;
+        }
+        
+        /* 弹幕动画 */
+        @keyframes danmaku-move {
+            from {
+                transform: translateX(100vw);
+            }
+            to {
+                transform: translateX(-100%);
+            }
+        }
+        
+        .map-control {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            right: 0;
+            margin: 0 auto;
+            width: 80%;
+            max-width: 600px;
+            z-index: 1000;
+        }
+        
+        .add-report-btn {
+            display: block;
+            width: 100%;
+            background-color: white;
+            color: #333;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        .add-report-btn:hover {
+            background-color: #f8f8f8;
+        }
+        
+        .report-form {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #1c1c1e;
+            padding: 20px;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+            z-index: 1001;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-in-out;
+        }
+        
+        .report-form.active, #editForm.active {
+            transform: translateY(0);
+        }
+        
+        #editForm {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #1c1c1e;
+            padding: 20px;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.5);
+            z-index: 1001;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-in-out;
+        }
+        
+        .form-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .form-close {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        .form-title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .form-input, .form-textarea {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background-color: #2c2c2e;
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .form-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .image-preview {
+            width: 100%;
+            height: 200px;
+            border-radius: 8px;
+            background-color: #2c2c2e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+            overflow: hidden;
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .image-preview:after {
+            content: "点击上传照片";
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .preview-img {
+            max-width: 100%;
+            max-height: 100%;
+            display: none;
+        }
+        
+        .image-placeholder {
+            color: #777;
+            font-size: 16px;
+        }
+        
+        .submit-btn {
+            width: 100%;
+            background-color: #0071e3;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .submit-btn:hover {
+            background-color: #0077ed;
+        }
+        
+        .report-card {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            z-index: 2001 !important;
+            background: rgba(28,28,30,0.98) !important;
+            box-shadow: 0 4px 32px rgba(0,0,0,0.4) !important;
+            display: none;
+        }
+        #reportCardMask {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 2000;
+            display: none;
+        }
+        
+        .report-time {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+        
+        .report-description {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+        
+        .report-image {
+            width: 100%;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            max-height: 200px;
+            object-fit: cover;
+        }
+        
+        .report-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .comment-btn, .edit-btn, .delete-btn {
+            background: none;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .comment-btn {
+            color: #0071e3;
+        }
+        
+        .edit-btn {
+            margin-left: auto;
+            color: #0071e3;
+        }
+        
+        .delete-btn {
+            margin-left: 10px;
+            color: #ff3b30;
+        }
+        
+        .comment-count {
+            font-size: 14px;
+            color: #aaa;
+        }
+        
+        .comments-section {
+            margin-top: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .comment {
+            background-color: #2c2c2e;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .comment-input {
+            display: flex;
+            margin-top: 10px;
+        }
+        
+        .comment-input input {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 20px;
+            border: 1px solid #444;
+            background-color: #2c2c2e;
+            color: #fff;
+        }
+        
+        .send-btn {
+            background-color: #0071e3;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 8px 15px;
+            margin-left: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .marker-icon {
+            width: 40px;
+            height: 40px;
+            background-color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+        
+        .marker-emoji {
+            font-size: 24px;
+        }
+        
+        .attribution {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            font-size: 12px;
+            color: #666;
+            z-index: 998;
+        }
+        
+        /* 新增报告和评论弹幕样式 */
+        .danmaku-item.report {
+            background-color: rgba(245, 255, 230, 0.85);
+            border-left: 3px solid #60d040;
+            color: #306010;
+        }
+        
+        .danmaku-item.comment {
+            background-color: rgba(240, 240, 255, 0.85);
+            border-left: 3px solid #8080f0;
+            color: #303080;
+        }
+        
+        .confirm-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none; /* 改为默认不显示 */
+            align-items: center;
+            justify-content: center;
+            z-index: 3000; /* 提升z-index，确保在所有弹窗之上 */
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease;
+        }
+        
+        .confirm-dialog.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .confirm-content {
+            background-color: #2c2c2e;
+            border-radius: 12px;
+            width: 85%;
+            max-width: 320px;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            z-index: 3001; /* 提升z-index，确保内容在遮罩之上 */
+        }
+        
+        .confirm-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .confirm-message {
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .confirm-buttons {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .confirm-btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 16px; /* 增大字体大小 */
+            min-height: 44px; /* 增加按钮高度，更易点击 */
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0); /* 移除移动端高亮效果 */
+            touch-action: manipulation; /* 优化触摸操作 */
+        }
+        
+        .confirm-btn:active {
+            opacity: 0.7; /* 按下时的视觉反馈 */
+        }
+        
+        .confirm-cancel {
+            background-color: #3a3a3c;
+            color: white;
+            margin-right: 10px;
+        }
+        
+        .confirm-ok {
+            background-color: #0071e3;
+            color: white;
+        }
+        
+        .scroll-emoji {
+            position: absolute;
+            pointer-events: none;
+            font-size: 24px;
+            z-index: 1000;
+            opacity: 0;
+            animation: moveAndFade 2s forwards;
+        }
+        
+        @keyframes moveAndFade {
+            0% {
+                transform: translateY(0);
+                opacity: 1;
+            }
+            70% {
+                opacity: 0.7;
+            }
+            100% {
+                transform: translateY(-60px);
+                opacity: 0;
+            }
+        }
+        
+        /* YarraTrams更新控制按钮 */
+        .tram-updates-control {
+            position: absolute;
+            top: 180px; /* 更新为匹配新的弹幕容器高度 */
+            right: 10px;
+            z-index: 1000;
+        }
+        
+        .refresh-tram-btn {
+            background-color: rgba(255, 255, 255, 0.8);
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+        }
+        
+        .refresh-tram-btn span {
+            margin-right: 5px;
+            font-size: 16px;
+        }
+        
+        .refresh-tram-btn:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* 添加移动设备适配样式 */
+        @media (max-width: 768px) {
+            .map-control {
+                width: 90%;
+                bottom: 20px;
+            }
+            
+            .add-report-btn {
+                padding: 14px;
+                font-size: 18px;
+            }
+            
+            .form-close {
+                padding: 10px; /* 增加点击区域 */
+            }
+            
+            .confirm-btn {
+                min-height: 50px; /* 在移动端进一步增加按钮高度 */
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            /* YarraTrams更新控制按钮优化 */
+            .tram-updates-control {
+                top: 195px; /* 更新为移动端视图匹配新的容器高度 */
+                right: 5px;
+            }
+            
+            .refresh-tram-btn {
+                padding: 12px;
+                min-height: 44px; /* 更易触摸 */
+            }
+        }
+
+        /* 用户信息菜单样式 */
+        .user-menu {
+            position: fixed;
+            top: 60px; /* Moved down to avoid overlapping with danmaku */
+            right: 18px; /* Aligned with language switch button */
+            z-index: 1001; /* Reduced z-index to be below danmaku (2000) */
+            background: rgba(255, 255, 255, 0.8); /* Added transparency */
+            color: #333;
+            border-radius: 20px;
+            padding: 6px 12px; /* Reduced padding to make it smaller */
+            font-size: 14px; /* Reduced font size */
+            font-weight: bold;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+            border: 2px solid #0071e3;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px; /* Reduced gap */
+            transition: background 0.2s,border 0.2s;
+        }
+
+        @media (max-width: 600px) {
+            .user-menu {
+                top: 50px; /* Adjusted for mobile */
+                right: 18px;
+                padding: 5px 8px; /* Further reduced padding for mobile */
+                font-size: 12px; /* Smaller font for mobile */
+            }
+        }
+
+        .user-menu:hover {
+            background: rgba(230, 240, 250, 0.9);
+        }
+
+        .user-menu-dropdown {
+            position: absolute;
+            top: 35px; /* Adjusted to account for smaller button */
+            right: 0;
+            background: #fff;
+            border-radius: 12px;
+            padding: 10px 0;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.2);
+            display: none;
+            min-width: 150px;
+            z-index: 3003; /* Ensure dropdown is above everything */
+        }
+
+        .user-menu-dropdown.active {
+            display: block;
+        }
+
+        .user-menu-item {
+            padding: 10px 15px;
+            color: #333;
+            font-size: 14px;
+            font-weight: normal;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .user-menu-item:hover {
+            background: #f0f0f0;
+        }
+
+        .user-menu-item.logout {
+            color: #ff3b30;
+            border-top: 1px solid #eee;
+            margin-top: 5px;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 右上角语言切换按钮，确保在body最顶部 -->
+    <button id="langSwitchBtn" style="position:fixed;top:18px;right:18px;z-index:1001;background:rgba(255,255,255,0.8);color:#333;border-radius:20px;padding:6px 12px;font-size:14px;font-weight:bold;box-shadow:0 2px 12px rgba(0,0,0,0.18);border:2px solid #0071e3;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background 0.2s,border 0.2s;">
+      <span style="font-size:16px;">🌐</span>
+      <span id="langSwitchText">EN</span>
+    </button>
+    <!-- 在语言切换按钮下方添加用户菜单 -->
+    <div id="userMenu" class="user-menu">
+      <span style="font-size:16px;">👤</span>
+      <span id="userDisplayName" style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">用户</span>
+      <div class="user-menu-dropdown" id="userMenuDropdown">
+        <div class="user-menu-item" id="profileMenuItem">个人资料</div>
+        <div class="user-menu-item logout" id="logoutMenuItem">退出登录</div>
+      </div>
+    </div>
+    <div id="map"></div>
+    
+    <!-- 弹幕容器 -->
+    <div class="danmaku-container" id="danmakuContainer"></div>
+    
+    <div class="map-control">
+        <a href="#" class="add-report-btn" id="addReportBtn">+ 添加报告</a>
+        <span id="addReportTip" style="display:none;color:#ffb300;font-size:14px;margin-left:10px;">请在地图上点选位置</span>
+    </div>
+    
+    <!-- YarraTrams更新控制按钮 -->
+    <div class="tram-updates-control">
+        <button id="refreshTramUpdates" class="refresh-tram-btn">
+            <span>🚋</span> 刷新电车信息
+        </button>
+    </div>
+    
+    <div class="report-form" id="reportForm">
+        <div class="form-header">
+            <h2 class="form-title">新报告</h2>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">照片</label>
+            <div class="image-preview" style="position:relative;">
+                <img src="" class="preview-img" id="previewImg">
+                <span class="image-placeholder" id="imagePlaceholder">点击添加照片</span>
+                <input type="file" id="imageInput" accept="image/*" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:2;">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">描述</label>
+            <textarea class="form-textarea" id="descriptionInput" placeholder="请描述您看到的情况..."></textarea>
+        </div>
+        
+        <div style="display:flex;gap:10px;">
+            <button class="submit-btn" id="submitReport" style="flex:1;">确定</button>
+            <button class="submit-btn" id="reselectLocation" style="flex:1;background:#ffb300;color:#333;">重新选点</button>
+            <button class="submit-btn" id="cancelReport" style="flex:1;background:#3a3a3c;">取消</button>
+        </div>
+    </div>
+    
+    <!-- 确保弹窗和遮罩元素在body内 -->
+    <div class="report-card" id="reportCard" style="display:none;">
+        <button class="form-close" id="closeReportCardBtn" style="position:absolute;top:10px;right:10px;font-size:24px;background:none;border:none;color:#fff;z-index:2002;">&times;</button>
+        <div class="report-time" id="reportTime"></div>
+        <div class="report-description" id="reportDesc"></div>
+        <img src="" class="report-image" id="reportImage" style="display: none;">
+        <div class="report-actions">
+            <button class="comment-btn" id="commentBtn">评论</button>
+            <span class="comment-count" id="commentCount">0 评论</span>
+            <button class="edit-btn" id="editReportBtn" style="display: none;">编辑</button>
+            <button class="delete-btn" id="deleteReportBtn" style="display: none;">删除</button>
+        </div>
+        <div class="comments-section" id="commentsSection">
+            <div class="comment-input">
+                <input type="text" placeholder="添加评论..." id="commentInput">
+                <button class="send-btn" id="sendComment">发送</button>
+            </div>
+        </div>
+    </div>
+    <div id="reportCardMask" style="display:none;"></div>
+    
+    <div class="report-form" id="editForm" style="display: none;">
+        <div class="form-header">
+            <h2 class="form-title">编辑报告</h2>
+            <button class="form-close" id="editFormClose">&times;</button>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">照片</label>
+            <div class="image-preview" id="editImagePreview">
+                <img src="" class="preview-img" id="editPreviewImg">
+                <span class="image-placeholder" id="editImagePlaceholder">点击添加照片</span>
+            </div>
+            <input type="file" id="editImageInput" accept="image/*" style="display: none;">
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">描述</label>
+            <textarea class="form-textarea" id="editDescriptionInput" placeholder="请描述您看到的情况..."></textarea>
+        </div>
+        
+        <button class="submit-btn" id="submitEditReport">保存修改</button>
+    </div>
+    
+    <div class="confirm-dialog" id="confirmDialog">
+        <div class="confirm-content">
+            <div class="confirm-title">确认操作</div>
+            <div class="confirm-message" id="confirmMessage">您确定要执行此操作吗？</div>
+            <div class="confirm-buttons">
+                <button class="confirm-btn confirm-cancel" id="confirmCancel">取消</button>
+                <button class="confirm-btn confirm-ok" id="confirmOk">确认</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="attribution">Map data © Google Maps</div>
+    
+    <!-- 替换Leaflet为Google Maps API -->
+    <!-- 注意: 使用前请将YOUR_API_KEY替换为您的Google Maps API密钥 -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCE-oMIlcnOeqplgMmL9y1qcU6A9-HBu9U&callback=initMap" async defer></script>
+    <script>
+        // Google Maps相关变量
+        var map;
+        var markers = [];
+        // 墨尔本中心坐标
+        const MELBOURNE_CENTER = { lat: -37.8136, lng: 144.9631 };
+        
+        // Firebase初始化配置
+        const firebaseConfig = {
+            apiKey: "AIzaSyA41pAi6PZ7qQ8xrLbTg65Y6pcZBYMpLmY",
+            authDomain: "ptvalert-19ea4.firebaseapp.com",
+            databaseURL: "https://ptvalert-19ea4-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "ptvalert-19ea4",
+            storageBucket: "ptvalert-19ea4.appspot.com",
+            messagingSenderId: "590126951854",
+            appId: "1:590126951854:web:4cbc14144b0a395dc42c3f"
+        };
+        
+        // 初始化Firebase
+        // 检查是否已初始化，避免重复初始化
+        if (!firebase.apps.length) {
+            console.log("初始化Firebase应用...");
+            firebase.initializeApp(firebaseConfig);
+        } else {
+            console.log("Firebase应用已初始化");
+        }
+        
+        const auth = firebase.auth();
+        console.log("Firebase auth状态:", auth ? "已加载" : "未加载");
+        const database = firebase.database();
+        
+        // 获取数据库引用
+        const reportsRef = database.ref('reports');
+        
+        // 检查游客模式cookie
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+        
+        // 验证用户登录状态
+        function checkAuthState() {
+            // 首先检查localStorage
+            const isGuestUserLS = localStorage.getItem('isGuestUser') === 'true';
+            const userLoggedInLS = localStorage.getItem('userLoggedIn') === 'true';
+            const guestIdLS = localStorage.getItem('guestId');
+            
+            // 然后检查cookie
+            const isGuestUserCookie = getCookie('isGuestUser') === 'true';
+            const userLoggedInCookie = getCookie('userLoggedIn') === 'true';
+            const guestIdCookie = getCookie('guestId');
+            
+            // 确定是否为游客模式
+            const isGuestUser = isGuestUserLS || isGuestUserCookie;
+            const userLoggedIn = userLoggedInLS || userLoggedInCookie;
+            const guestId = guestIdLS || guestIdCookie || 'guest_user';
+            
+            if (isGuestUser && userLoggedIn) {
+                console.log('使用游客模式...');
+                console.log('游客ID:', guestId);
+                
+                // 显示游客模式菜单
+                const userMenu = document.getElementById('userMenu');
+                const userDisplayName = document.getElementById('userDisplayName');
+                userDisplayName.textContent = currentLang === 'zh' ? '游客' : 'Guest';
+                userMenu.style.display = 'flex';
+                
+                return; // 游客模式登录成功，不需要进一步检查
+            }
+            
+            // 如果不是游客模式，检查Firebase认证
+            auth.onAuthStateChanged(function(user) {
+                if (user) {
+                    // 用户已通过Firebase登录
+                    console.log('用户已登录Firebase:', user.uid, user.isAnonymous ? '(匿名用户)' : '');
+                    updateUserMenu(user);
+                } else if (userLoggedIn) {
+                    // 用户通过localStorage登录但Firebase不识别，继续以localStorage用户身份使用
+                    console.log('用户已通过localStorage登录');
+                    const userMenu = document.getElementById('userMenu');
+                    const userDisplayName = document.getElementById('userDisplayName');
+                    const userEmail = localStorage.getItem('userEmail') || (currentLang === 'zh' ? '用户' : 'User');
+                    userDisplayName.textContent = userEmail.split('@')[0];
+                    userMenu.style.display = 'flex';
+                } else {
+                    // 未登录，重定向到登录页
+                    console.log('用户未登录，重定向到登录页...');
+                    window.location.href = 'login.html';
+                }
+            }, function(error) {
+                console.error('Firebase Auth状态检查错误:', error);
+                // Firebase认证出错时，检查localStorage登录状态
+                if (isGuestUser || userLoggedIn) {
+                    console.log('Firebase认证出错，但用户已通过localStorage或cookie登录');
+                    const userMenu = document.getElementById('userMenu');
+                    const userDisplayName = document.getElementById('userDisplayName');
+                    if (isGuestUser) {
+                        userDisplayName.textContent = currentLang === 'zh' ? '游客' : 'Guest';
+                    } else {
+                        const userEmail = localStorage.getItem('userEmail') || (currentLang === 'zh' ? '用户' : 'User');
+                        userDisplayName.textContent = userEmail.split('@')[0];
+                    }
+                    userMenu.style.display = 'flex';
+                } else {
+                    // 未登录，重定向到登录页
+                    console.log('用户未登录，重定向到登录页...');
+                    window.location.href = 'login.html';
+                }
+            });
+        }
+        
+        // 更新用户菜单显示
+        function updateUserMenu(user) {
+            const userMenu = document.getElementById('userMenu');
+            const userDisplayName = document.getElementById('userDisplayName');
+            
+            // 检查是否是本地游客模式
+            if (!user && localStorage.getItem('isGuestUser') === 'true') {
+                userDisplayName.textContent = currentLang === 'zh' ? '游客' : 'Guest';
+                userMenu.style.display = 'flex';
+                return;
+            }
+            
+            if (user) {
+                // 优先使用用户名，如果没有则使用邮箱
+                const displayName = user.displayName || user.email || (currentLang === 'zh' ? '用户' : 'User');
+                userDisplayName.textContent = displayName.split('@')[0]; // 只显示@前面的部分
+                userMenu.style.display = 'flex';
+            } else {
+                userMenu.style.display = 'none';
+            }
+        }
+        
+        // 注销登录
+        function logout() {
+            // 清除本地存储
+            localStorage.removeItem('userLoggedIn');
+            localStorage.removeItem('userEmail');
+            localStorage.removeItem('isGuestUser');
+            localStorage.removeItem('guestId');
+            
+            // 清除cookies
+            document.cookie = "isGuestUser=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+            document.cookie = "userLoggedIn=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+            document.cookie = "guestId=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+            
+            // 如果是通过Firebase登录的，也执行Firebase登出
+            if (auth && auth.currentUser) {
+                auth.signOut().then(() => {
+                    console.log('Firebase用户已注销');
+                    // 重定向到登录页
+                    window.location.href = 'login.html';
+                }).catch((error) => {
+                    console.error('Firebase注销失败:', error);
+                    // 即使失败也重定向到登录页
+                    window.location.href = 'login.html';
+                });
+            } else {
+                // 如果只是本地游客模式，直接重定向
+                console.log('本地游客模式已注销');
+                window.location.href = 'login.html';
+            }
+        }
+        
+        // 用户菜单交互
+        document.addEventListener('DOMContentLoaded', function() {
+            const userMenu = document.getElementById('userMenu');
+            const userMenuDropdown = document.getElementById('userMenuDropdown');
+            const logoutMenuItem = document.getElementById('logoutMenuItem');
+            const profileMenuItem = document.getElementById('profileMenuItem');
+            
+            // 切换菜单显示/隐藏
+            userMenu.addEventListener('click', function(e) {
+                e.stopPropagation();
+                userMenuDropdown.classList.toggle('active');
+            });
+            
+            // 点击文档其他位置关闭菜单
+            document.addEventListener('click', function() {
+                userMenuDropdown.classList.remove('active');
+            });
+            
+            // 退出登录
+            logoutMenuItem.addEventListener('click', function() {
+                logout();
+            });
+            
+            // 更新用户菜单中的文本
+            function updateUserMenuLanguage() {
+                logoutMenuItem.textContent = currentLang === 'zh' ? '退出登录' : 'Log Out';
+                profileMenuItem.textContent = currentLang === 'zh' ? '个人资料' : 'Profile';
+                
+                // 如果是游客模式，更新显示文本
+                if (localStorage.getItem('isGuestUser') === 'true') {
+                    document.getElementById('userDisplayName').textContent = currentLang === 'zh' ? '游客' : 'Guest';
+                }
+            }
+            
+            // 把语言更新函数绑定到setLang中
+            const originalSetLang = setLang;
+            setLang = function(lang) {
+                originalSetLang(lang);
+                updateUserMenuLanguage();
+            };
+            
+            // 初始化用户菜单语言
+            updateUserMenuLanguage();
+            
+            // 检查登录状态
+            checkAuthState();
+        });
+        
+        // 墨尔本主要电车站点数据
+        const tramStops = [
+            { name: "Flinders Street Station", lat: -37.8183, lng: 144.9671, type: "tram" },
+            { name: "Melbourne Central", lat: -37.8100, lng: 144.9633, type: "tram" },
+            { name: "Parliament Station", lat: -37.8113, lng: 144.9730, type: "tram" },
+            { name: "Bourke Street Mall", lat: -37.8136, lng: 144.9659, type: "tram" },
+            { name: "Queen Victoria Market", lat: -37.8076, lng: 144.9566, type: "tram" },
+            { name: "St Kilda Beach", lat: -37.8684, lng: 144.9733, type: "tram" },
+            { name: "Toorak", lat: -37.8406, lng: 145.0174, type: "tram" },
+            { name: "Brunswick St", lat: -37.7965, lng: 144.9783, type: "tram" },
+            { name: "South Melbourne Beach", lat: -37.8505, lng: 144.9499, type: "tram" },
+            { name: "Docklands", lat: -37.8159, lng: 144.9459, type: "tram" }
+        ];
+        
+        // 墨尔本主要火车站点数据
+        const trainStations = [
+            { name: "Flinders Street Station", lat: -37.8183, lng: 144.9671, type: "train" },
+            { name: "Southern Cross Station", lat: -37.8183, lng: 144.9522, type: "train" },
+            { name: "Melbourne Central", lat: -37.8100, lng: 144.9633, type: "train" },
+            { name: "Parliament Station", lat: -37.8113, lng: 144.9730, type: "train" },
+            { name: "Flagstaff Station", lat: -37.8127, lng: 144.9562, type: "train" },
+            { name: "Richmond Station", lat: -37.8239, lng: 144.9975, type: "train" },
+            { name: "South Yarra Station", lat: -37.8387, lng: 144.9926, type: "train" },
+            { name: "Footscray Station", lat: -37.8012, lng: 144.9037, type: "train" },
+            { name: "North Melbourne Station", lat: -37.8062, lng: 144.9416, type: "train" },
+            { name: "Jolimont Station", lat: -37.8162, lng: 144.9802, type: "train" }
+        ];
+        
+        // 新增：添加报告流程状态
+        let isSelectingLocation = false;
+        let tempMarker = null; // 只保留一个临时标记
+        
+        // 新增: 鼠标移动表情相关变量
+        let mouseMoveEmojiTimer;
+        let activeMouseMoveEmojis = [];
+        
+        // 初始化Google地图
+        function initMap() {
+            // 创建地图
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: MELBOURNE_CENTER,
+                zoom: 13,
+                mapTypeId: google.maps.MapTypeId.ROADMAP,
+                styles: [
+                    {
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#212121"}]
+                    },
+                    {
+                        "elementType": "labels.icon",
+                        "stylers": [{"visibility": "off"}]
+                    },
+                    {
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#757575"}]
+                    },
+                    {
+                        "elementType": "labels.text.stroke",
+                        "stylers": [{"color": "#212121"}]
+                    },
+                    {
+                        "featureType": "administrative",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#757575"}]
+                    },
+                    {
+                        "featureType": "administrative.country",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#9e9e9e"}]
+                    },
+                    {
+                        "featureType": "administrative.land_parcel",
+                        "stylers": [{"visibility": "off"}]
+                    },
+                    {
+                        "featureType": "administrative.locality",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#bdbdbd"}]
+                    },
+                    {
+                        "featureType": "poi",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#757575"}]
+                    },
+                    {
+                        "featureType": "poi.park",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#181818"}]
+                    },
+                    {
+                        "featureType": "poi.park",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#616161"}]
+                    },
+                    {
+                        "featureType": "poi.park",
+                        "elementType": "labels.text.stroke",
+                        "stylers": [{"color": "#1b1b1b"}]
+                    },
+                    {
+                        "featureType": "road",
+                        "elementType": "geometry.fill",
+                        "stylers": [{"color": "#2c2c2c"}]
+                    },
+                    {
+                        "featureType": "road",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#8a8a8a"}]
+                    },
+                    {
+                        "featureType": "road.arterial",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#373737"}]
+                    },
+                    {
+                        "featureType": "road.highway",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#3c3c3c"}]
+                    },
+                    {
+                        "featureType": "road.highway.controlled_access",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#4e4e4e"}]
+                    },
+                    {
+                        "featureType": "road.local",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#616161"}]
+                    },
+                    {
+                        "featureType": "transit",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#757575"}]
+                    },
+                    {
+                        "featureType": "water",
+                        "elementType": "geometry",
+                        "stylers": [{"color": "#000000"}]
+                    },
+                    {
+                        "featureType": "water",
+                        "elementType": "labels.text.fill",
+                        "stylers": [{"color": "#3d3d3d"}]
+                    }
+                ]
+            });
+            
+            // 添加电车站标记
+            tramStops.forEach(stop => {
+                addStationMarker(stop);
+            });
+            
+            // 添加火车站标记
+            trainStations.forEach(station => {
+                addStationMarker(station);
+            });
+            
+            // 添加地图点击事件
+            map.addListener("click", (event) => {
+                handleMapClick(event.latLng);
+                document.body.style.cursor = '';
+            });
+            // 关键：地图初始化后再加载报告数据
+            loadReportsFromFirebase();
+        }
+        
+        // 添加站点标记
+        function addStationMarker(station) {
+            const icon = {
+                url: station.type === 'tram' 
+                    ? 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#40c0ff" d="M19,16.94V8.5C19,5.71 16.39,5 12,5C7.61,5 5,5.71 5,8.5V16.94C5,18.39 6.13,19.6 7.58,19.91L6,21.5V22H8.23L10.23,20H14L16,22H18V21.5L16.42,19.91C17.87,19.6 19,18.39 19,16.94M12,18.5A1.5,1.5 0 0,1 10.5,17A1.5,1.5 0 0,1 12,15.5A1.5,1.5 0 0,1 13.5,17A1.5,1.5 0 0,1 12,18.5M17,14H7V9H17V14Z" /></svg>')
+                    : 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#ff8040" d="M12,2C7.58,2 4,2.5 4,6V15.5A3.5,3.5 0 0,0 7.5,19L6,20.5V21H8.23L10.23,19H14L16,21H18V20.5L16.5,19A3.5,3.5 0 0,0 20,15.5V6C20,2.5 16.42,2 12,2M7.5,17A1.5,1.5 0 0,1 6,15.5A1.5,1.5 0 0,1 7.5,14A1.5,1.5 0 0,1 9,15.5A1.5,1.5 0 0,1 7.5,17M11,10H6V6H11V10M16.5,17A1.5,1.5 0 0,1 15,15.5A1.5,1.5 0 0,1 16.5,14A1.5,1.5 0 0,1 18,15.5A1.5,1.5 0 0,1 16.5,17M18,10H13V6H18V10Z" /></svg>'),
+                scaledSize: new google.maps.Size(32, 32),
+                anchor: new google.maps.Point(16, 16),
+            };
+            
+            const marker = new google.maps.Marker({
+                position: { lat: station.lat, lng: station.lng },
+                map: map,
+                title: station.name,
+                icon: icon,
+                zIndex: 10
+            });
+            
+            // 信息窗口
+            const infoWindow = new google.maps.InfoWindow({
+                content: `<div style="color:#000;font-weight:bold;">${station.name}</div><div style="color:#555;">${station.type === 'tram' ? '电车站' : '火车站'}</div>`
+            });
+            
+            marker.addListener("click", () => {
+                infoWindow.open(map, marker);
+            });
+            
+            markers.push(marker);
+        }
+        
+        // 处理地图点击事件
+        function handleMapClick(latLng) {
+            if (!isSelectingLocation) {
+                if (document.getElementById('reportCard').style.display === 'block') {
+                    document.getElementById('reportCard').style.display = 'none';
+                }
+                return;
+            }
+            // 清除上一个临时标记
+            if (tempMarker) {
+                tempMarker.setMap(null);
+                tempMarker = null;
+            }
+            selectedLocation = {
+                lat: latLng.lat(),
+                lng: latLng.lng()
+            };
+            document.getElementById('addReportTip').style.display = 'none';
+            document.getElementById('addReportBtn').textContent = '+ 添加报告';
+            document.getElementById('addReportBtn').classList.remove('disabled');
+            isSelectingLocation = false;
+            // 添加临时标记
+            tempMarker = new google.maps.Marker({
+                position: { lat: selectedLocation.lat, lng: selectedLocation.lng },
+                map: map,
+                icon: {
+                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="white" opacity="0.8"/><text x="12" y="16" font-size="12" text-anchor="middle" fill="black">🐶</text></svg>'),
+                    scaledSize: new google.maps.Size(40, 40),
+                    anchor: new google.maps.Point(20, 20),
+                },
+                animation: google.maps.Animation.DROP
+            });
+            // 恢复鼠标
+            document.body.style.cursor = '';
+            // 弹出表单
+            document.getElementById('reportForm').classList.add('active');
+        }
+        
+        // 存储所有报告的数组
+        // This array is now synchronized with Firebase Realtime Database.
+        // Reports added by any user will be visible to all other users in real-time.
+        let reports = [];
+        let nextReportId = 1;
+        
+        // 从Firebase加载报告数据
+        function loadReportsFromFirebase() {
+            reportsRef.on('value', (snapshot) => {
+                reports = [];
+                if (snapshot.exists()) {
+                    snapshot.forEach((childSnapshot) => {
+                        const report = childSnapshot.val();
+                        // 转换时间字符串为Date对象
+                        report.time = new Date(report.time);
+                        reports.push(report);
+                    });
+                }
+                
+                // 更新下一个报告ID
+                nextReportId = reports.length > 0 ? Math.max(0, ...reports.map(r => r.id)) + 1 : 1;
+                
+                // 在地图上显示标记
+                displayReports();
+                
+                console.log("Reports loaded from Firebase:", reports.length);
+            });
+            
+            // 监听新增的报告
+            reportsRef.on('child_added', (snapshot) => {
+                console.log("New report added to Firebase");
+            });
+            
+            // 监听删除的报告
+            reportsRef.on('child_removed', (snapshot) => {
+                console.log("Report removed from Firebase");
+            });
+        }
+        
+        // 当前用户ID - 在实际应用中应通过登录系统获取
+        // For this example, we'll generate a random user ID that persists in localStorage
+        const currentUserId = localStorage.getItem('mapUserId') || 
+                             'user_' + Math.random().toString(36).substr(2, 9);
+        // 保存用户ID到localStorage
+        localStorage.setItem('mapUserId', currentUserId);
+        
+        // 当前选中的报告ID
+        let currentReportId = null;
+        
+        // 当前选中的坐标
+        let selectedLocation = null;
+        
+        // 交通和警察表情数组
+        const scrollEmojis = [
+            '🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚',
+            '🚛', '🚜', '🛵', '🏍️', '🛺', '🚲', '🚄', '🚅', '🚝', '🚞', '🚋', '🚉',
+            '👮‍♀️', '👮‍♂️', '🚔', '🚨', '🚥', '🚦', '🛤️', '🚏', '🚇', '🚊', '✈️', '🚀'
+        ];
+        
+        // 显示所有报告标记
+        // This function displays markers based on the 'reports' array currently loaded in memory.
+        // Now synchronized with Firebase Realtime Database for multi-user experience.
+        function displayReports() {
+            console.log('displayReports called, reports:', reports, 'map:', map);
+            // 清除现有标记
+            markers.forEach(marker => {
+                marker.setMap(null);
+            });
+            markers = [];
+            const now = new Date();
+            reports.forEach(report => {
+                const reportCreationTime = new Date(report.time);
+                const reportAgeHours = (now - reportCreationTime) / (1000 * 60 * 60);
+                if (reportAgeHours > 3) {
+                    console.log(`Initial display: Report ID ${report.id} is older than 3 hours (${reportAgeHours.toFixed(2)} hrs), not displaying marker.`);
+                    return; // Skip this report, it's too old
+                }
+                // 用兼容性更好的emoji SVG自定义icon
+                const markerIcon = {
+                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+                        `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+                            <circle cx="20" cy="20" r="18" fill="white" opacity="0.9"/>
+                            <text x="20" y="28" font-size="24" text-anchor="middle" fill="black">${report.emoji}</text>
+                        </svg>`
+                    ),
+                    scaledSize: new google.maps.Size(40, 40),
+                    anchor: new google.maps.Point(20, 20)
+                };
+                const marker = new google.maps.Marker({
+                    position: { lat: report.lat, lng: report.lng },
+                    map: map,
+                    icon: markerIcon,
+                    clickable: true,
+                    zIndex: 9999
+                });
+                marker.reportId = report.id;
+                marker.addListener("click", function() {
+                    console.log('marker clicked', this.reportId);
+                    showReportCard(this.reportId);
+                });
+                markers.push(marker);
+            });
+        }
+        
+        // 添加新报告
+        // This function now saves the report to Firebase, making it visible to all users
+        function addNewReport(description, image, lat, lng) {
+            const newReport = {
+                id: nextReportId++,
+                lat: lat,
+                lng: lng,
+                description: description,
+                time: new Date().toISOString(), // Store as ISO string for Firebase
+                image: image,
+                emoji: "🐶",
+                comments: [],
+                userId: currentUserId
+            };
+            
+            // 根据描述选择表情
+            if (description && (description.toLowerCase().includes('dog') || description.toLowerCase().includes('狗'))) {
+                newReport.emoji = "🐶";
+            } else if (description && (description.toLowerCase().includes('traffic') || description.toLowerCase().includes('交通'))) {
+                newReport.emoji = "🚗";
+            } else if (description && (description.toLowerCase().includes('food') || description.toLowerCase().includes('餐'))) {
+                newReport.emoji = "🍔";
+            } else if (description && (description.toLowerCase().includes('event') || description.toLowerCase().includes('活动'))) {
+                newReport.emoji = "🎪";
+            }
+            
+            // 保存到Firebase (使用ID作为键)
+            console.log('即将写入Firebase的新报告:', newReport);
+            reportsRef.child(newReport.id.toString()).set(newReport)
+                .then(() => {
+                    console.log("Report successfully saved to Firebase", newReport);
+                    closeReportFormAndReset();
+                    // 地图标记会自动刷新，且可点击（displayReports逻辑已保证）
+                    // 不再调用showReportCard，直接回到初始页面
+                })
+                .catch((error) => {
+                    console.error("Error saving report to Firebase:", error);
+                });
+            
+            // 清空表单
+            document.getElementById('descriptionInput').value = '';
+            document.getElementById('previewImg').style.display = 'none';
+            document.getElementById('imagePlaceholder').style.display = 'block';
+            document.getElementById('imageInput').value = '';
+            loopDanmaku();
+        }
+        
+        // 显示报告卡片
+        function showReportCard(reportId) {
+            console.log('showReportCard called', reportId);
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            currentReportId = reportId;
+            // 获取弹窗和遮罩元素
+            const reportCard = document.getElementById('reportCard');
+            const mask = document.getElementById('reportCardMask');
+            const localEditBtn = document.getElementById('editReportBtn');
+            const localDeleteBtn = document.getElementById('deleteReportBtn');
+            const closeReportCardBtn = document.getElementById('closeReportCardBtn');
+            if (!reportCard || !mask) {
+                alert('弹窗元素未正确插入页面，请检查HTML结构或遮罩插入逻辑！');
+                return;
+            }
+            const reportTime = document.getElementById('reportTime');
+            const reportDesc = document.getElementById('reportDesc');
+            const reportImage = document.getElementById('reportImage');
+            const commentCount = document.getElementById('commentCount');
+            const commentsSection = document.getElementById('commentsSection');
+            if (!reportTime || !reportDesc || !reportImage || !commentCount || !commentsSection) {
+                alert('弹窗内容元素未正确插入页面，请检查HTML结构！');
+                return;
+            }
+            reportTime.textContent = formatTime(report.time);
+            reportDesc.textContent = report.description;
+            // 描述翻译按钮
+            let descTranslateBtn = document.getElementById('descTranslateBtn');
+            if (!descTranslateBtn) {
+                descTranslateBtn = document.createElement('button');
+                descTranslateBtn.id = 'descTranslateBtn';
+                descTranslateBtn.textContent = '🌐';
+                descTranslateBtn.style.marginLeft = '8px';
+                descTranslateBtn.style.background = 'none';
+                descTranslateBtn.style.border = 'none';
+                descTranslateBtn.style.cursor = 'pointer';
+                descTranslateBtn.style.color = '#4da3ff';
+                descTranslateBtn.title = 'Translate Description';
+                reportDesc.parentNode.insertBefore(descTranslateBtn, reportDesc.nextSibling);
+            }
+            // 设置按钮title和逻辑
+            const descLang = detectLang(report.description);
+            const descTargetLang = descLang === 'zh' ? 'en' : 'zh';
+            descTranslateBtn.title = descTargetLang === 'en' ? 'Translate to English' : '翻译为中文';
+            descTranslateBtn.onclick = async function() {
+                descTranslateBtn.disabled = true;
+                descTranslateBtn.textContent = '...';
+                const translated = await translateText(report.description, descTargetLang);
+                reportDesc.textContent = translated;
+                descTranslateBtn.textContent = '🌐';
+                descTranslateBtn.disabled = false;
+            };
+            if (report.image) {
+                reportImage.src = report.image;
+                reportImage.style.display = 'block';
+            } else {
+                reportImage.style.display = 'none';
+            }
+            if (!Array.isArray(report.comments)) {
+                report.comments = [];
+            }
+            // 评论区标题
+            commentCount.textContent = i18n[currentLang].comment + i18n[currentLang].commentCount(report.comments.length).replace(/\D*\d+\D*/, match => match.replace(/\D/g, ''));
+            commentsSection.style.display = 'none';
+            // 清除现有评论
+            const existingComments = commentsSection.querySelectorAll('.comment');
+            existingComments.forEach(comment => comment.remove());
+            // 添加评论到评论区
+            report.comments.forEach((comment, idx) => {
+                const commentElement = document.createElement('div');
+                commentElement.className = 'comment';
+                commentElement.textContent = comment;
+                // 所有评论都加翻译按钮
+                const commentLang = detectLang(comment);
+                const targetLang = commentLang === 'zh' ? 'en' : 'zh';
+                const translateBtn = document.createElement('button');
+                translateBtn.textContent = '🌐';
+                translateBtn.title = targetLang === 'en' ? 'Translate to English' : '翻译为中文';
+                translateBtn.style.marginLeft = '8px';
+                translateBtn.style.background = 'none';
+                translateBtn.style.border = 'none';
+                translateBtn.style.cursor = 'pointer';
+                translateBtn.style.color = '#4da3ff';
+                translateBtn.style.float = 'right';
+                translateBtn.onclick = async function() {
+                    translateBtn.disabled = true;
+                    translateBtn.textContent = '...';
+                    const translated = await translateText(comment, targetLang);
+                    commentElement.textContent = translated;
+                    translateBtn.textContent = '🌐';
+                    translateBtn.disabled = false;
+                };
+                commentElement.appendChild(translateBtn);
+                commentsSection.insertBefore(commentElement, document.getElementById('commentInput').parentNode);
+            });
+            // 检查是否为当前用户的报告，如果是则显示编辑和删除按钮
+            if (localEditBtn && localDeleteBtn) {
+                if (report.userId === currentUserId) {
+                    localEditBtn.style.display = 'block';
+                    localDeleteBtn.style.display = 'block';
+                } else {
+                    localEditBtn.style.display = 'none';
+                    localDeleteBtn.style.display = 'none';
+                }
+            }
+            // 显示遮罩和弹窗
+            mask.style.display = 'block';
+            reportCard.style.display = 'block';
+            // 重新绑定关闭按钮事件
+            if (closeReportCardBtn) {
+                closeReportCardBtn.onclick = function() {
+                    reportCard.style.display = 'none';
+                    mask.style.display = 'none';
+                };
+            }
+            // 重新绑定编辑和删除按钮事件
+            if (localEditBtn) {
+                localEditBtn.onclick = function() {
+                    const report = reports.find(r => r.id === currentReportId);
+                    if (!report) return;
+                    if (report.userId !== currentUserId) {
+                        showConfirmDialog('您只能编辑自己发布的报告', null);
+                        return;
+                    }
+                    document.getElementById('editDescriptionInput').value = report.description;
+                    const editPreviewImg = document.getElementById('editPreviewImg');
+                    const editImagePlaceholder = document.getElementById('editImagePlaceholder');
+                    if (report.image) {
+                        editPreviewImg.src = report.image;
+                        editPreviewImg.style.display = 'block';
+                        editImagePlaceholder.style.display = 'none';
+                    } else {
+                        editPreviewImg.style.display = 'none';
+                        editImagePlaceholder.style.display = 'block';
+                    }
+                    document.getElementById('editForm').classList.add('active');
+                };
+            }
+            if (localDeleteBtn) {
+                localDeleteBtn.onclick = function() {
+                    showConfirmDialog('您确定要删除这条报告吗？此操作不可撤销。', function(confirmed) {
+                        if (confirmed) {
+                            deleteReport(currentReportId);
+                        }
+                    });
+                };
+            }
+        }
+        
+        // 格式化时间
+        function formatTime(date) {
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000); // 秒差
+            
+            if (diff < 60) {
+                return "刚刚";
+            } else if (diff < 3600) {
+                const minutes = Math.floor(diff / 60);
+                return `${minutes} 分钟前`;
+            } else if (diff < 86400) {
+                const hours = Math.floor(diff / 3600);
+                return `${hours} 小时前`;
+            } else {
+                const days = Math.floor(diff / 86400);
+                return `${days} 天前`;
+            }
+        }
+        
+        // 显示确认对话框
+        let currentConfirmCallback = null;
+        
+        function handleConfirmOk() {
+            console.log("确认按钮被点击");
+            closeConfirmDialog();
+            if (typeof currentConfirmCallback === 'function') {
+                currentConfirmCallback(true);
+            }
+        }
+        
+        function handleConfirmCancel() {
+            console.log("取消按钮被点击");
+            closeConfirmDialog();
+            if (typeof currentConfirmCallback === 'function') {
+                currentConfirmCallback(false);
+            }
+        }
+        
+        function showConfirmDialog(message, callback) {
+            const confirmDialog = document.getElementById('confirmDialog');
+            currentConfirmCallback = callback;
+            // 若传入的是通用确认内容，自动用i18n
+            if (message === '您确定要提交这个报告吗？' || message === 'Are you sure you want to submit this report?' || /提交/.test(message) || /submit/i.test(message)) {
+                message = i18n[currentLang].confirmMsg;
+            }
+            if (message === '您确定要删除这条报告吗？此操作不可撤销。' || message === 'Are you sure you want to delete this report? This action cannot be undone.' || /删除/.test(message) || /delete/i.test(message)) {
+                message = i18n[currentLang].confirmDelete;
+            }
+            if (message === '您确定要保存这些修改吗？' || message === 'Are you sure you want to save these changes?' || /保存/.test(message) || /save/i.test(message)) {
+                message = i18n[currentLang].confirmEdit;
+            }
+            if (message === '确定发送此评论？' || message === 'Send this comment?' || /评论/.test(message) || /comment/i.test(message)) {
+                message = i18n[currentLang].confirmSendComment;
+            }
+            document.getElementById('confirmMessage').textContent = message;
+            document.querySelector('.confirm-title').textContent = i18n[currentLang].confirmTitle;
+            document.getElementById('confirmCancel').textContent = i18n[currentLang].cancel;
+            document.getElementById('confirmOk').textContent = i18n[currentLang].confirm;
+            // 强制显示弹窗
+            confirmDialog.style.display = 'flex';
+            confirmDialog.style.visibility = 'visible';
+            confirmDialog.style.opacity = '1';
+            confirmDialog.classList.add('active');
+            // 先解绑再绑定，确保每次都有效
+            const okBtn = document.getElementById('confirmOk');
+            const cancelBtn = document.getElementById('confirmCancel');
+            okBtn.onclick = function() {
+                closeConfirmDialog();
+                if (typeof currentConfirmCallback === 'function') {
+                    currentConfirmCallback(true);
+                }
+            };
+            cancelBtn.onclick = function() {
+                closeConfirmDialog();
+                if (typeof currentConfirmCallback === 'function') {
+                    currentConfirmCallback(false);
+                }
+            };
+        }
+        
+        // 关闭确认对话框
+        function closeConfirmDialog() {
+            const confirmDialog = document.getElementById('confirmDialog');
+            confirmDialog.classList.remove('active');
+            setTimeout(() => {
+                confirmDialog.style.display = 'none';
+                currentConfirmCallback = null;
+            }, 300);
+        }
+        
+        // 新增: 创建随鼠标移动的表情
+        function createDynamicEmoji(x, y) {
+            const emojiEl = document.createElement('div');
+            emojiEl.style.position = 'fixed'; // Use fixed to position relative to viewport
+            emojiEl.style.left = `${x - 12}px`; // Center the emoji roughly on cursor
+            emojiEl.style.top = `${y - 12}px`;  // Center the emoji roughly on cursor
+            emojiEl.style.pointerEvents = 'none';
+            emojiEl.style.fontSize = '24px'; // Match scroll-emoji font size
+            emojiEl.style.zIndex = '2005'; // Ensure it's above most other elements
+            emojiEl.textContent = scrollEmojis[Math.floor(Math.random() * scrollEmojis.length)];
+            document.body.appendChild(emojiEl);
+            activeMouseMoveEmojis.push(emojiEl);
+        }
+
+        // 新增: 处理鼠标移动事件，用于显示表情
+        function handleMouseMove(e) {
+            createDynamicEmoji(e.clientX, e.clientY);
+            clearTimeout(mouseMoveEmojiTimer);
+            mouseMoveEmojiTimer = setTimeout(() => {
+                activeMouseMoveEmojis.forEach(em => em.remove());
+                activeMouseMoveEmojis = [];
+            }, 200); // Emojis disappear after 200ms of no movement
+        }
+
+        // 创建滚动emoji
+        function createScrollEmoji(x, y) {
+            const emoji = document.createElement('div');
+            emoji.className = 'scroll-emoji';
+            emoji.textContent = scrollEmojis[Math.floor(Math.random() * scrollEmojis.length)];
+            emoji.style.left = `${x}px`;
+            emoji.style.top = `${y}px`;
+            document.body.appendChild(emoji);
+            
+            // 动画结束后移除元素
+            setTimeout(() => {
+                emoji.remove();
+            }, 2000);
+        }
+        
+        // 弹幕数据 - YarraTrams最新公告与内容
+        let danmakuData = [
+            "YarraTrams: 58路电车今日将在West Coburg到Toorak之间正常运行",
+            "公告: 墨尔本艺术电车项目自1978年开始，促进艺术与公共交通的融合",
+            "96路电车: East Brunswick至St Kilda Beach有临时调整，请查看最新时刻表",
+            "YarraTrams: 在Collins Street新增艺术候车亭，连接乘客与原住民文化",
+            "交通更新: 11路电车West Preston至Victoria Harbour Docklands路线正常",
+            "免费电车区提醒: 墨尔本市中心区域乘坐电车无需付费",
+            "YarraTrams: 为提升网络覆盖范围，部分线路将进行基础设施升级",
+            "服务公告: 35路环城电车提供便捷的市区观光体验",
+            "YarraTrams: 72路电车Melbourne University至Camberwell线路正常运行",
+            "安全提示: 请在靠近电车轨道时保持警惕，注意安全",
+            "YarraTrams: 访问PTV旅程规划工具，轻松规划您的出行路线",
+            "服务公告: 109路电车Box Hill至Port Melbourne线路按时刻表运行"
+        ];
+        
+        // 上次更新时间
+        let lastUpdateTime = new Date();
+        
+        // 自动刷新定时器
+        let autoRefreshTimer;
+        
+        // 更新状态显示
+        function updateStatusDisplay() {
+            const lastUpdateSpan = document.getElementById('lastUpdateTime');
+            if (lastUpdateSpan) {
+                const timeDiff = Math.floor((new Date() - lastUpdateTime) / 60000); // 分钟差
+                lastUpdateSpan.textContent = timeDiff < 1 ? '刚刚' : `${timeDiff}分钟前`;
+            }
+        }
+        
+        // 获取YarraTrams最新信息
+        function fetchTramUpdates(showAlert = true) {
+            // 在实际应用中，这里应该是向YarraTrams API发起请求
+            // 由于我们无法实际调用外部API，这里模拟新数据
+            
+            // 显示加载状态
+            const refreshBtn = document.getElementById('refreshTramUpdates');
+            const originalBtnText = refreshBtn.innerHTML;
+            refreshBtn.innerHTML = '<span>🔄</span> 加载中...';
+            refreshBtn.disabled = true;
+            
+            // 模拟API延迟
+            setTimeout(() => {
+                // 生成一些新的公告
+                const newUpdates = [
+                    `YarraTrams: ${new Date().toLocaleDateString()} 最新服务调整公告`,
+                    "交通部门公告: 计划出行请关注PTV旅程规划工具的最新信息",
+                    `服务更新: 今日${Math.floor(Math.random() * 10) + 1}条线路因维护工作有临时调整`,
+                    "YarraTrams: 下载移动应用获取实时电车到站信息",
+                    "安全提醒: 在电车站台请站在黄线内等候",
+                    `电车调整: ${Math.floor(Math.random() * 100) + 1}路电车有临时服务变更`
+                ];
+                
+                // 更新弹幕数据
+                danmakuData = [...newUpdates, ...danmakuData.slice(0, 6)];
+                
+                // 恢复按钮状态
+                refreshBtn.innerHTML = originalBtnText;
+                refreshBtn.disabled = false;
+                
+                // 更新最后刷新时间
+                lastUpdateTime = new Date();
+                updateStatusDisplay();
+                
+                // 显示提示
+                if (showAlert) {
+                    alert('电车信息已更新');
+                }
+            }, 1500);
+        }
+        
+        // 初始化弹幕系统
+        function initDanmaku() {
+            const container = document.getElementById('danmakuContainer');
+            
+            // 清空容器
+            container.innerHTML = '';
+            
+            // 如果没有弹幕数据，先更新
+            if (!danmakuData || danmakuData.length === 0) {
+                updateDanmakuData();
+            }
+            
+            // 循环发送弹幕
+            function loopDanmaku() {
+                danmakuData.forEach((text, index) => {
+                    setTimeout(() => {
+                        createDanmaku(text);
+                    }, index * 3000); // 每3秒发送一条
+                });
+                
+                // 循环间隔时间
+                setTimeout(loopDanmaku, danmakuData.length * 3000);
+            }
+            
+            // 创建单条弹幕
+            function createDanmaku(text) {
+                const danmaku = document.createElement('div');
+                danmaku.className = 'danmaku-item';
+                
+                // 根据内容设置不同的样式
+                if (text.includes('安全') || text.includes('警告') || text.includes('注意') || 
+                    text.includes('safety') || text.includes('warning') || text.includes('caution')) {
+                    danmaku.classList.add('safety');
+                } else if (text.includes('Bus') || text.includes('Route') || text.includes('电车') || 
+                           text.includes('tram') || text.includes('路线') || text.includes('stop') || 
+                           text.startsWith('Route ')) {
+                    danmaku.classList.add('service');
+                } else if (text.includes('YarraTrams:') || text.includes('公告') || text.includes('Disruption') || 
+                          text.includes('replace') || text.includes('closure')) {
+                    danmaku.classList.add('important');
+                } else if (text.startsWith('📝') || text.startsWith('💬')) {
+                    // 报告和评论的样式
+                    danmaku.classList.add(text.startsWith('📝') ? 'report' : 'comment');
+                }
+                
+                danmaku.textContent = text;
+                
+                // 改进垂直位置分配，创建几个通道以防止重叠，进一步增加通道间距
+                const channels = [15, 50, 85, 115, 135]; // 五个垂直位置通道，最底部通道上移更多
+                const channelIndex = Math.floor(Math.random() * channels.length);
+                const top = channels[channelIndex];
+                danmaku.style.top = `${top}px`;
+                
+                // 随机速度 (通过动画持续时间控制)
+                const speed = 12 + Math.random() * 8; // 12-20秒之间
+                danmaku.style.animationDuration = `${speed}s`;
+                
+                // 添加到容器
+                container.appendChild(danmaku);
+                
+                // 动画结束后移除
+                setTimeout(() => {
+                    danmaku.remove();
+                }, speed * 1000);
+            }
+            
+            // 开始循环弹幕
+            loopDanmaku();
+        }
+        
+        // 编辑报告
+        function editReport(reportId, description, image) {
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            
+            // 只能编辑自己的报告
+            if (report.userId !== currentUserId) {
+                showConfirmDialog('您只能编辑自己发布的报告', null);
+                return false;
+            }
+            
+            // 更新报告内容
+            report.description = description;
+            if (image) {
+                report.image = image;
+            }
+            
+            // 根据描述更新表情
+            let newEmoji = report.emoji; // 默认保持原来的表情
+            if (description.toLowerCase().includes('dog') || description.toLowerCase().includes('狗')) {
+                newEmoji = "🐶";
+            } else if (description.toLowerCase().includes('traffic') || description.toLowerCase().includes('交通')) {
+                newEmoji = "🚗";
+            } else if (description.toLowerCase().includes('food') || description.toLowerCase().includes('餐')) {
+                newEmoji = "🍔";
+            } else if (description.toLowerCase().includes('event') || description.toLowerCase().includes('活动')) {
+                newEmoji = "🎪";
+            }
+            
+            // 更新报告的表情
+            report.emoji = newEmoji;
+            
+            // 保存到Firebase
+            reportsRef.child(reportId.toString()).update({
+                description: description,
+                image: image,
+                emoji: newEmoji
+            })
+            .then(() => {
+                console.log("Report successfully updated in Firebase");
+                // 重新显示报告卡片
+                showReportCard(reportId);
+            })
+            .catch((error) => {
+                console.error("Error updating report in Firebase:", error);
+            });
+            
+            return true;
+        }
+        
+        // 添加评论
+        function addComment(reportId, comment) {
+            const report = reports.find(r => r.id === reportId);
+            if (!report) return;
+            
+            // 先在本地添加
+            if (!report.comments) {
+                report.comments = [];
+            }
+            report.comments.push(comment);
+            
+            // 更新到Firebase
+            reportsRef.child(reportId.toString()).child('comments').set(report.comments)
+                .then(() => {
+                    console.log("Comment successfully added to Firebase");
+                })
+                .catch((error) => {
+                    console.error("Error adding comment to Firebase:", error);
+                });
+            
+            // 更新评论区
+            const commentsSection = document.getElementById('commentsSection');
+            const commentElement = document.createElement('div');
+            commentElement.className = 'comment';
+            commentElement.textContent = comment;
+            commentsSection.insertBefore(commentElement, document.getElementById('commentInput').parentNode);
+            
+            // 更新评论计数
+            document.getElementById('commentCount').textContent = `${report.comments.length} 评论`;
+        }
+        
+        // 删除报告
+        function deleteReport(reportId) {
+            // 找到报告索引
+            const reportIndex = reports.findIndex(r => r.id === reportId);
+            if (reportIndex === -1) return false;
+            const report = reports[reportIndex];
+            // 检查是否为当前用户的报告
+            if (report.userId !== currentUserId) {
+                showConfirmDialog('您只能删除自己发布的报告', null);
+                return false;
+            }
+            // 从Firebase中删除
+            reportsRef.child(reportId.toString()).remove()
+                .then(() => {
+                    console.log(`Report ID ${reportId} successfully deleted from Firebase`);
+                    // 删除成功后自动关闭弹窗和遮罩
+                    document.getElementById('reportCard').style.display = 'none';
+                    document.getElementById('reportCardMask').style.display = 'none';
+                })
+                .catch((error) => {
+                    console.error("Error deleting report from Firebase:", error);
+                });
+            return true;
+        }
+        
+        // 新功能：检查并移除超时的标记
+        function checkMarkerExpiry() {
+            const now = new Date();
+            let didRemove = false;
+            
+            for (let i = reports.length - 1; i >= 0; i--) { // Iterate backwards for safe removal
+                const report = reports[i];
+                const reportCreationTime = new Date(report.time);
+                const reportAgeHours = (now - reportCreationTime) / (1000 * 60 * 60);
+
+                if (reportAgeHours > 3) {
+                    console.log(`Expiry check: Report ID ${report.id} (age: ${reportAgeHours.toFixed(2)} hrs) has expired.`);
+                    
+                    // Remove from Firebase
+                    reportsRef.child(report.id.toString()).remove()
+                        .then(() => {
+                            console.log(`Report ID ${report.id} removed from Firebase.`);
+                        })
+                        .catch((error) => {
+                            console.error("Error removing report from Firebase:", error);
+                        });
+                    
+                    didRemove = true;
+                    
+                    // Find and remove marker from map (now handled by Firebase listener and displayReports)
+                }
+            }
+        }
+        
+        // DOM 事件监听器
+        document.addEventListener('DOMContentLoaded', function() {
+            const addReportBtn = document.getElementById('addReportBtn');
+            const reportForm = document.getElementById('reportForm');
+            const imagePreview = document.querySelector('.image-preview');
+            const imageInput = document.getElementById('imageInput');
+            const previewImg = document.getElementById('previewImg');
+            const imagePlaceholder = document.getElementById('imagePlaceholder');
+            const submitReport = document.getElementById('submitReport');
+            const commentBtn = document.getElementById('commentBtn');
+            const commentsSection = document.getElementById('commentsSection');
+            const sendComment = document.getElementById('sendComment');
+            const commentInput = document.getElementById('commentInput');
+            const confirmCancel = document.getElementById('confirmCancel');
+            const confirmOk = document.getElementById('confirmOk');
+            const editReportBtn = document.getElementById('editReportBtn');
+            const editForm = document.getElementById('editForm');
+            const editFormClose = document.getElementById('editFormClose');
+            const editImagePreview = document.getElementById('editImagePreview');
+            const editImageInput = document.getElementById('editImageInput');
+            const editPreviewImg = document.getElementById('editPreviewImg');
+            const editImagePlaceholder = document.getElementById('editImagePlaceholder');
+            const submitEditReport = document.getElementById('submitEditReport');
+            const refreshTramUpdates = document.getElementById('refreshTramUpdates');
+            const addReportTip = document.getElementById('addReportTip');
+            const cancelReport = document.getElementById('cancelReport');
+            const reselectLocation = document.getElementById('reselectLocation');
+            const closeReportCardBtn = document.getElementById('closeReportCardBtn');
+            
+            imageInput.addEventListener('change', function() {
+                const file = this.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        previewImg.src = e.target.result;
+                        previewImg.style.display = 'block';
+                        imagePlaceholder.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    previewImg.src = '';
+                    previewImg.style.display = 'none';
+                    imagePlaceholder.style.display = 'block';
+                }
+            });
+
+            // 添加最后更新时间标签
+            const updateTimeSpan = document.createElement('span');
+            updateTimeSpan.id = 'lastUpdateTime';
+            updateTimeSpan.textContent = '刚刚';
+            updateTimeSpan.style.marginLeft = '5px';
+            updateTimeSpan.style.fontSize = '12px';
+            updateTimeSpan.style.color = '#666';
+            refreshTramUpdates.appendChild(updateTimeSpan);
+            
+            // 初始化弹幕
+            initDanmaku();
+            
+            // 每天自动更新弹幕数据
+            function scheduleDailyUpdate() {
+                const now = new Date();
+                const tomorrow = new Date();
+                tomorrow.setDate(now.getDate() + 1);
+                tomorrow.setHours(0, 0, 0, 0); // 设置为明天凌晨00:00
+                
+                const timeUntilMidnight = tomorrow - now;
+                
+                // 设置定时器，在明天凌晨自动更新
+                setTimeout(() => {
+                    console.log("Daily danmaku update triggered");
+                    fetchTramUpdates(false); // 静默更新
+                    // 再次安排明天的更新
+                    scheduleDailyUpdate();
+                }, timeUntilMidnight);
+                
+                console.log(`Next danmaku update scheduled in ${Math.floor(timeUntilMidnight/1000/60/60)} hours ${Math.floor((timeUntilMidnight/1000/60) % 60)} minutes`);
+            }
+            
+            // 启动每日更新计划
+            scheduleDailyUpdate();
+            
+            // 设置自动刷新 (每3小时)
+            clearInterval(autoRefreshTimer); // 清除原有定时器
+            autoRefreshTimer = setInterval(() => {
+                fetchTramUpdates(false); // 静默刷新，不显示提示
+                initDanmaku(); // 确保弹幕也刷新
+            }, 3 * 60 * 60 * 1000); // 3小时
+            
+            // 每分钟更新状态显示
+            setInterval(updateStatusDisplay, 60 * 1000);
+            
+            // 刷新电车信息按钮
+            refreshTramUpdates.addEventListener('click', function() {
+                fetchTramUpdates(true); // 显示提示
+                initDanmaku();
+            });
+            
+            // 打开报告表单
+            addReportBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (isSelectingLocation) return;
+                isSelectingLocation = true;
+                addReportTip.style.display = 'inline';
+                addReportBtn.textContent = '正在选点...（可取消）';
+                addReportBtn.classList.add('disabled');
+                selectedLocation = null;
+                // 关闭表单
+                document.getElementById('reportForm').classList.remove('active');
+                // 鼠标变为十字
+                document.body.style.cursor = 'crosshair';
+                // 清除临时标记
+                if (tempMarker) {
+                    tempMarker.setMap(null);
+                    tempMarker = null;
+                }
+            });
+            
+            // 重新选点按钮
+            reselectLocation.addEventListener('click', function(e) {
+                e.preventDefault();
+                isSelectingLocation = true;
+                addReportTip.style.display = 'inline';
+                addReportBtn.textContent = '正在选点...（可取消）';
+                addReportBtn.classList.add('disabled');
+                document.getElementById('reportForm').classList.remove('active');
+                // 鼠标变为十字
+                document.body.style.cursor = 'crosshair';
+                // 清除临时标记
+                if (tempMarker) {
+                    tempMarker.setMap(null);
+                    tempMarker = null;
+                }
+            });
+            
+            // 取消按钮逻辑
+            cancelReport.addEventListener('click', function(e) {
+                e.preventDefault();
+                closeReportFormAndReset();
+            });
+            
+            // 提交报告按钮逻辑优化
+            submitReport.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('submitReport clicked');
+                const description = document.getElementById('descriptionInput').value.trim();
+                if (!selectedLocation) {
+                    alert('请先在地图上点选位置');
+                    return;
+                }
+                showConfirmDialog('您确定要提交这个报告吗？', function(confirmed) {
+                    console.log('确认对话框回调，confirmed:', confirmed);
+                    if (confirmed) {
+                        let imageData = '';
+                        if (previewImg.style.display !== 'none') {
+                            imageData = previewImg.src;
+                        }
+                        console.log('调用addNewReport', description, imageData, selectedLocation.lat, selectedLocation.lng);
+                        addNewReport(description, imageData, selectedLocation.lat, selectedLocation.lng);
+                        document.getElementById('reportForm').classList.remove('active');
+                        selectedLocation = null;
+                        isSelectingLocation = false;
+                        addReportTip.style.display = 'none';
+                        addReportBtn.textContent = '+ 添加报告';
+                        addReportBtn.classList.remove('disabled');
+                        // 清除临时标记
+                        if (tempMarker) {
+                            tempMarker.setMap(null);
+                            tempMarker = null;
+                        }
+                        document.body.style.cursor = '';
+                    }
+                });
+            });
+            
+            // 显示/隐藏评论区
+            commentBtn.addEventListener('click', function() {
+                if (commentsSection.style.display === 'none') {
+                    commentsSection.style.display = 'block';
+                } else {
+                    commentsSection.style.display = 'none';
+                }
+            });
+            
+            // 发送评论
+            sendComment.addEventListener('click', function() {
+                const comment = commentInput.value.trim();
+                if (!comment) return;
+                
+                showConfirmDialog('确定发送此评论？', function(confirmed) {
+                    if (confirmed) {
+                        addComment(currentReportId, comment);
+                        commentInput.value = '';
+                    }
+                });
+            });
+            
+            // 回车发送评论
+            commentInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    const comment = this.value.trim();
+                    if (!comment) return;
+                    
+                    showConfirmDialog('确定发送此评论？', function(confirmed) {
+                        if (confirmed) {
+                            addComment(currentReportId, comment);
+                            commentInput.value = '';
+                        }
+                    });
+                }
+            });
+            
+            // 点击地图空白处关闭报告卡片
+            map.addListener("click", (event) => {
+                if (document.getElementById('reportCard').style.display === 'block') {
+                    document.getElementById('reportCard').style.display = 'none';
+                }
+            });
+            
+            // 点击编辑按钮
+            editReportBtn.addEventListener('click', function() {
+                const report = reports.find(r => r.id === currentReportId);
+                if (!report) return;
+                
+                // 检查是否为当前用户的报告
+                if (report.userId !== currentUserId) {
+                    showConfirmDialog('您只能编辑自己发布的报告', null);
+                    return;
+                }
+                
+                // 填充编辑表单
+                document.getElementById('editDescriptionInput').value = report.description;
+                
+                if (report.image) {
+                    editPreviewImg.src = report.image;
+                    editPreviewImg.style.display = 'block';
+                    editImagePlaceholder.style.display = 'none';
+                } else {
+                    editPreviewImg.style.display = 'none';
+                    editImagePlaceholder.style.display = 'block';
+                }
+                
+                // 显示编辑表单
+                editForm.classList.add('active');
+            });
+            
+            // 关闭编辑表单
+            editFormClose.addEventListener('click', function() {
+                showConfirmDialog('您确定要取消编辑吗？未保存的修改将会丢失。', function(confirmed) {
+                    if (confirmed) {
+                        editForm.classList.remove('active');
+                    }
+                });
+            });
+            
+            // 预览区域点击提示已由input覆盖，无需额外事件
+            // 但为编辑表单保留点击事件
+            document.getElementById('editImagePreview').addEventListener('click', function() {
+                document.getElementById('editImageInput').click();
+            });
+            
+            editImageInput.addEventListener('change', function() {
+                const file = this.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        editPreviewImg.src = e.target.result;
+                        editPreviewImg.style.display = 'block';
+                        editImagePlaceholder.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            
+            // 提交编辑
+            submitEditReport.addEventListener('click', function() {
+                const description = document.getElementById('editDescriptionInput').value.trim();
+                
+                if (!description) {
+                    alert('请输入描述');
+                    return;
+                }
+                
+                showConfirmDialog('您确定要保存这些修改吗？', function(confirmed) {
+                    if (confirmed) {
+                        // 获取图片
+                        let imageData = '';
+                        if (editPreviewImg.style.display !== 'none') {
+                            imageData = editPreviewImg.src;
+                        }
+                        
+                        // 编辑报告
+                        if (editReport(currentReportId, description, imageData)) {
+                            // 关闭编辑表单
+                            editForm.classList.remove('active');
+                        }
+                    }
+                });
+            });
+            
+            // 点击删除按钮
+            const deleteReportBtn = document.getElementById('deleteReportBtn');
+            deleteReportBtn.addEventListener('click', function() {
+                showConfirmDialog('您确定要删除这条报告吗？此操作不可撤销。', function(confirmed) {
+                    if (confirmed) {
+                        deleteReport(currentReportId);
+                    }
+                });
+            });
+            
+            // 为所有按钮添加触摸事件支持
+            const allButtons = document.querySelectorAll('button, .add-report-btn');
+            allButtons.forEach(button => {
+                button.addEventListener('touchstart', function(e) {
+                    // 使用active类标记按钮被按下
+                    this.classList.add('active-touch');
+                });
+                
+                button.addEventListener('touchend', function(e) {
+                    // 移除active类
+                    this.classList.remove('active-touch');
+                });
+            });
+
+            // 阻止地图上的默认触摸行为（防止滚动干扰）
+            document.getElementById('map').addEventListener('touchmove', function(e) {
+                if (document.getElementById('reportForm').classList.contains('active') || 
+                    document.getElementById('editForm').classList.contains('active') ||
+                    document.getElementById('confirmDialog').classList.contains('active')) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+            
+            // 确保确认对话框内的事件不传播到地图
+            document.getElementById('confirmDialog').addEventListener('touchmove', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+            
+            document.querySelector('.confirm-content').addEventListener('touchmove', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+            
+            // 添加滚轮事件监听器
+            document.addEventListener('wheel', handleScroll);
+
+            // 新增: 添加鼠标移动事件监听器
+            document.body.addEventListener('mousemove', handleMouseMove);
+
+            // 新增: 定时检查标记是否过期
+            setInterval(checkMarkerExpiry, 60000); // Check every minute
+            
+            // 初始化Firebase数据加载
+            loadReportsFromFirebase();
+
+            // 确保遮罩元素和样式插入
+            if (!document.getElementById('reportCardMask')) {
+              const mask = document.createElement('div');
+              mask.id = 'reportCardMask';
+              document.body.appendChild(mask);
+            }
+            if (!document.getElementById('reportCardMaskStyle')) {
+              const style = document.createElement('style');
+              style.id = 'reportCardMaskStyle';
+              style.innerHTML = `
+              .report-card {
+                position: fixed !important;
+                top: 50% !important;
+                left: 50% !important;
+                transform: translate(-50%, -50%) !important;
+                z-index: 2001 !important;
+                background: rgba(28,28,30,0.98) !important;
+                box-shadow: 0 4px 32px rgba(0,0,0,0.4) !important;
+                display: none;
+              }
+              #reportCardMask {
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.45);
+                z-index: 2000;
+                display: none;
+              }
+              `;
+              document.head.appendChild(style);
+            }
+            // 绑定遮罩点击关闭弹窗
+            const mask = document.getElementById('reportCardMask');
+            if (mask) {
+              mask.onclick = function() {
+                mask.style.display = 'none';
+                document.getElementById('reportCard').style.display = 'none';
+              };
+            }
+            if (closeReportCardBtn) {
+                closeReportCardBtn.onclick = function() {
+                    document.getElementById('reportCard').style.display = 'none';
+                    document.getElementById('reportCardMask').style.display = 'none';
+                };
+            }
+        });
+
+        // 退出报告页面相关逻辑，只清理tempMarker，不影响正式标记
+        function closeReportFormAndReset() {
+            document.getElementById('reportForm').classList.remove('active');
+            selectedLocation = null;
+            isSelectingLocation = false;
+            document.getElementById('addReportTip').style.display = 'none';
+            document.getElementById('addReportBtn').textContent = '+ 添加报告';
+            document.getElementById('addReportBtn').classList.remove('disabled');
+            if (tempMarker) {
+                tempMarker.setMap(null);
+                tempMarker = null;
+            }
+            document.body.style.cursor = '';
+        }
+
+        // 语言包
+        const i18n = {
+          zh: {
+            addReport: '+ 添加报告',
+            addReportTip: '请在地图上点选位置',
+            formTitle: '新报告',
+            photo: '照片',
+            desc: '描述',
+            descPlaceholder: '请描述您看到的情况...',
+            confirm: '确定',
+            reselect: '重新选点',
+            cancel: '取消',
+            comment: '评论',
+            edit: '编辑',
+            delete: '删除',
+            commentCount: n => `${n} 评论`,
+            editTitle: '编辑报告',
+            saveEdit: '保存修改',
+            confirmTitle: '确认操作',
+            confirmMsg: '您确定要执行此操作吗？',
+            confirmDelete: '您确定要删除这条报告吗？此操作不可撤销。',
+            confirmEdit: '您确定要保存这些修改吗？',
+            confirmSendComment: '确定发送此评论？',
+            confirmCancelEdit: '您确定要取消编辑吗？未保存的修改将会丢失。',
+            alertNoDesc: '请输入描述',
+            alertNoLocation: '请先在地图上点选位置',
+            alertNoReport: '弹窗元素未正确插入页面，请检查HTML结构或遮罩插入逻辑！',
+            justNow: '刚刚',
+            minAgo: n => `${n} 分钟前`,
+            hourAgo: n => `${n} 小时前`,
+            dayAgo: n => `${n} 天前`,
+            refreshTram: '刷新电车信息',
+            lastUpdate: '刚刚',
+            send: '发送',
+            imagePlaceholder: '点击添加照片',
+            editImagePlaceholder: '点击添加照片',
+            freeTram: '免费电车区提醒: 墨尔本市中心区域乘坐电车无需付费',
+            addReportSelecting: '正在选点...（可取消）',
+            updateSuccess: '电车信息已更新',
+            // ...可扩展
+          },
+          en: {
+            addReport: '+ Add Report',
+            addReportTip: 'Please select a location on the map',
+            formTitle: 'New Report',
+            photo: 'Photo',
+            desc: 'Description',
+            descPlaceholder: 'Describe what you saw...',
+            confirm: 'Submit',
+            reselect: 'Reselect',
+            cancel: 'Cancel',
+            comment: 'Comment',
+            edit: 'Edit',
+            delete: 'Delete',
+            commentCount: n => `${n} Comments`,
+            editTitle: 'Edit Report',
+            saveEdit: 'Save',
+            confirmTitle: 'Confirmation',
+            confirmMsg: 'Are you sure you want to proceed?',
+            confirmDelete: 'Are you sure you want to delete this report? This action cannot be undone.',
+            confirmEdit: 'Are you sure you want to save these changes?',
+            confirmSendComment: 'Send this comment?',
+            confirmCancelEdit: 'Are you sure to cancel editing? Unsaved changes will be lost.',
+            alertNoDesc: 'Please enter a description',
+            alertNoLocation: 'Please select a location on the map first',
+            alertNoReport: 'Popup element not found, please check HTML structure!',
+            justNow: 'Just now',
+            minAgo: n => `${n} min ago`,
+            hourAgo: n => `${n} hours ago`,
+            dayAgo: n => `${n} days ago`,
+            refreshTram: 'Refresh Tram Info',
+            lastUpdate: 'Just now',
+            send: 'Send',
+            imagePlaceholder: 'Click to add photo',
+            editImagePlaceholder: 'Click to add photo',
+            freeTram: 'Free Tram Zone: No ticket required in Melbourne CBD',
+            addReportSelecting: 'Selecting... (Cancelable)',
+            updateSuccess: 'Tram information updated',
+            // ...可扩展
+          }
+        };
+        let currentLang = 'zh';
+
+        function setLang(lang) {
+          currentLang = lang;
+          // 按钮
+          document.getElementById('addReportBtn').textContent = i18n[lang].addReport;
+          document.getElementById('addReportTip').textContent = i18n[lang].addReportTip;
+          document.getElementById('langSwitchText').textContent = lang === 'zh' ? 'EN' : '中';
+          // 更新电车信息按钮
+          const refreshBtn = document.getElementById('refreshTramUpdates');
+          const spanElement = refreshBtn.querySelector('span');
+          const spanHtml = spanElement ? spanElement.outerHTML : '<span>🚋</span>';
+          refreshBtn.innerHTML = `${spanHtml} ${i18n[lang].refreshTram}`;
+          // 表单
+          document.querySelector('.form-title').textContent = i18n[lang].formTitle;
+          document.querySelector('.form-label').textContent = i18n[lang].photo;
+          document.getElementById('imagePlaceholder').textContent = i18n[lang].imagePlaceholder;
+          document.querySelectorAll('.form-label')[1].textContent = i18n[lang].desc;
+          document.getElementById('descriptionInput').placeholder = i18n[lang].descPlaceholder;
+          document.getElementById('submitReport').textContent = i18n[lang].confirm;
+          document.getElementById('reselectLocation').textContent = i18n[lang].reselect;
+          document.getElementById('cancelReport').textContent = i18n[lang].cancel;
+          // 详情弹窗
+          document.getElementById('commentBtn').textContent = i18n[lang].comment;
+          document.getElementById('editReportBtn').textContent = i18n[lang].edit;
+          document.getElementById('deleteReportBtn').textContent = i18n[lang].delete;
+          document.getElementById('sendComment').textContent = i18n[lang].send;
+          document.getElementById('commentInput').placeholder = i18n[lang].comment;
+          // 编辑弹窗
+          document.querySelector('#editForm .form-title').textContent = i18n[lang].editTitle;
+          document.getElementById('editImagePlaceholder').textContent = i18n[lang].editImagePlaceholder;
+          document.getElementById('editDescriptionInput').placeholder = i18n[lang].descPlaceholder;
+          document.getElementById('submitEditReport').textContent = i18n[lang].saveEdit;
+          // 确认弹窗
+          document.querySelector('.confirm-title').textContent = i18n[lang].confirmTitle;
+          // 其他可扩展
+          document.getElementById('langSwitchText').textContent = lang === 'zh' ? 'EN' : '中';
+          // 选点状态下按钮文本
+          const addReportBtn = document.getElementById('addReportBtn');
+          if (addReportBtn.classList.contains('disabled')) {
+            addReportBtn.textContent = i18n[lang].addReportSelecting;
+          } else {
+            addReportBtn.textContent = i18n[lang].addReport;
+          }
+          // 新增：同步更新图片上传、评论、确认弹窗
+          updateImagePreviewLang();
+          updateCommentBtnLang();
+          updateConfirmDialogLang();
+          // 新增：同步刷新所有已显示的评论数
+          const commentCount = document.getElementById('commentCount');
+          if (commentCount && typeof currentReportId !== 'undefined') {
+            const report = reports.find(r => r.id === currentReportId);
+            if (report) commentCount.textContent = i18n[lang].commentCount(report.comments ? report.comments.length : 0);
+          }
+          // 新增：同步刷新确认弹窗内容
+          const confirmDialog = document.getElementById('confirmDialog');
+          if (confirmDialog && confirmDialog.style.display !== 'none') {
+            document.querySelector('.confirm-title').textContent = i18n[lang].confirmTitle;
+            document.getElementById('confirmCancel').textContent = i18n[lang].cancel;
+            document.getElementById('confirmOk').textContent = i18n[lang].confirm;
+            // 若内容为通用确认，自动切换
+            const msg = document.getElementById('confirmMessage');
+            if (msg) {
+              if (msg.textContent === i18n[lang === 'zh' ? 'en' : 'zh'].confirmMsg) {
+                msg.textContent = i18n[lang].confirmMsg;
+              } else if (msg.textContent === i18n[lang === 'zh' ? 'en' : 'zh'].confirmDelete) {
+                msg.textContent = i18n[lang].confirmDelete;
+              }
+            }
+          }
+          // 新增：刷新已显示评论的翻译按钮title
+          const commentDivs = document.querySelectorAll('.comment');
+          commentDivs.forEach(div => {
+            const btn = div.querySelector('button');
+            if (btn) btn.title = lang === 'zh' ? '翻译为英文' : 'Translate to Chinese';
+          });
+          
+          // 重新生成对应语言的弹幕数据
+          updateDanmakuData();
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          // ...原有代码...
+          setLang('zh'); // 默认中文
+          // 事件绑定提前，确保不会被后续代码覆盖
+          document.getElementById('langSwitchBtn').onclick = function() {
+            setLang(currentLang === 'zh' ? 'en' : 'zh');
+          };
+          // ...原有代码...
+          // 选点按钮切换时也用i18n
+          document.getElementById('addReportBtn').addEventListener('click', function(e) {
+            // ...原有...
+            this.textContent = i18n[currentLang].addReportSelecting;
+            // ...原有...
+          });
+          document.getElementById('reselectLocation').addEventListener('click', function(e) {
+            // ...原有...
+            document.getElementById('addReportBtn').textContent = i18n[currentLang].addReportSelecting;
+            // ...原有...
+          });
+          document.getElementById('cancelReport').addEventListener('click', function(e) {
+            // ...原有...
+            document.getElementById('addReportBtn').textContent = i18n[currentLang].addReport;
+            // ...原有...
+          });
+          // 初始同步图片上传、评论、确认弹窗
+          updateImagePreviewLang();
+          updateCommentBtnLang();
+          updateConfirmDialogLang();
+        });
+
+        // 1. 图片上传按钮（image-preview:after）国际化
+        function updateImagePreviewLang() {
+          const lang = currentLang;
+          const styleId = 'imagePreviewLangStyle';
+          let style = document.getElementById(styleId);
+          if (!style) {
+            style = document.createElement('style');
+            style.id = styleId;
+            document.head.appendChild(style);
+          }
+          style.innerHTML = `.image-preview:after { content: "${i18n[lang].imagePlaceholder}"; position: absolute; bottom: 10px; right: 10px; background-color: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; }`;
+        }
+        // 2. 评论区"评论"与"Comment"
+        function updateCommentBtnLang() {
+          const commentBtn = document.getElementById('commentBtn');
+          if (commentBtn) commentBtn.textContent = i18n[currentLang].comment;
+        }
+        // 3. 确认弹窗按钮国际化
+        function updateConfirmDialogLang() {
+          document.getElementById('confirmCancel').textContent = i18n[currentLang].cancel;
+          document.getElementById('confirmOk').textContent = i18n[currentLang].confirm;
+        }
+
+        // 模拟翻译函数（实际可接入Google Translate API）
+        async function translateText(text, targetLang) {
+          // 这里只做简单模拟，实际可用fetch调用API
+          if (targetLang === 'en') {
+            // 假设中文转英文
+            if (text === '测试评论') return 'Test comment';
+            if (text === '你好') return 'Hello';
+            return '[EN] ' + text;
+          } else {
+            // 假设英文转中文
+            if (text === 'Test comment') return '测试评论';
+            if (text === 'Hello') return '你好';
+            return '[中] ' + text;
+          }
+        }
+
+        // 检测文本主要语言（简单判定：含有大量中文字符则为中文，否则为英文）
+        function detectLang(text) {
+          const zhCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+          const enCount = (text.match(/[a-zA-Z]/g) || []).length;
+          return zhCount > enCount ? 'zh' : 'en';
+        }
+
+        // 弹幕数据更新 - 从YarraTrams获取服务变更信息并加入报告内容
+        function updateDanmakuData() {
+            // 清空现有弹幕数据
+            danmakuData = [];
+            
+            // 添加时间前缀函数 - 使用当前时间
+            function addTimePrefix(text) {
+                const now = new Date();
+                const hours = now.getHours().toString().padStart(2, '0');
+                const minutes = now.getMinutes().toString().padStart(2, '0');
+                return `[${hours}:${minutes}] ${text}`;
+            }
+            
+            // 根据当前语言选择服务变更信息 - 现在包含发布日期
+            // 每条服务变更信息包含内容和发布时间 [content, publishTime]
+            let tramServiceChanges;
+            if (currentLang === 'zh') {
+                tramServiceChanges = [
+                    ["58路电车 - Kings Way站点关闭至2025年7月", "2024-07-27T09:15:00"],
+                    ["特殊活动和邮轮期间将增加额外电车服务（2025年5月至6月）", "2024-05-01T14:30:00"],
+                    ["57路和82路电车将由巴士替代（2025年5月2-11日）", "2024-04-25T11:20:00"],
+                    ["Flinders街起重机安装影响75路和环城电车（5月11日）", "2024-05-05T16:45:00"],
+                    ["5月11日周日市区电车因集会将受到影响", "2024-05-04T13:10:00"],
+                    ["Burwood高速公路维修：75路电车将由巴士替代（5月19-27日）", "2024-05-12T10:05:00"],
+                    ["St Georges道轨道工程：11路电车将由巴士替代（5月30日-6月2日）", "2024-05-15T09:30:00"],
+                    ["国王生日公共假期：电车将按周六频率运行（6月9日）", "2024-05-20T15:40:00"],
+                    ["免费电车区提醒：墨尔本市中心区域乘坐电车无需付费", "2024-01-15T08:00:00"],
+                    ["96路电车：East Brunswick至St Kilda Beach正常运行", "2024-05-18T07:30:00"],
+                    ["109路电车：Box Hill至Port Melbourne服务正常", "2024-05-19T06:45:00"],
+                    ["86路电车：Bundoora RMIT至Waterfront City运行顺畅", "2024-05-17T12:20:00"],
+                    ["11路电车：West Preston至Victoria Harbour Docklands准时", "2024-05-16T14:15:00"],
+                    ["75路电车：Vermont South至Central Pier服务更新可用", "2024-05-17T10:50:00"],
+                    ["35路环城电车提供便捷的市区观光体验", "2024-05-01T09:00:00"]
+                ];
+            } else {
+                tramServiceChanges = [
+                    ["Route 58 - Stop closure on Kings Way until July 2025", "2024-07-27T09:15:00"],
+                    ["Extra trams for special events and cruise ships from May to June 2025", "2024-05-01T14:30:00"],
+                    ["Buses replace Route 57 and 82 trams from May 2-11, 2025", "2024-04-25T11:20:00"],
+                    ["Flinders Street crane installation affects Route 75 and City Circle on May 11", "2024-05-05T16:45:00"],
+                    ["Disruption to City trams on Sunday May 11 due to rally", "2024-05-04T13:10:00"],
+                    ["Burwood Highway renewal works: Buses replace Route 75 trams May 19-27", "2024-05-12T10:05:00"],
+                    ["St Georges Road track works: Buses replace Route 11 trams May 30-June 2", "2024-05-15T09:30:00"],
+                    ["King's Birthday public holiday: Trams run Saturday frequency on June 9", "2024-05-20T15:40:00"],
+                    ["Free Tram Zone reminder: No ticket required in Melbourne CBD", "2024-01-15T08:00:00"],
+                    ["Route 96 East Brunswick to St Kilda Beach running on schedule", "2024-05-18T07:30:00"],
+                    ["Route 109 Box Hill to Port Melbourne service operating normally", "2024-05-19T06:45:00"],
+                    ["Route 86 Bundoora RMIT to Waterfront City running smoothly", "2024-05-17T12:20:00"],
+                    ["Route 11 West Preston to Victoria Harbour Docklands on time", "2024-05-16T14:15:00"],
+                    ["Route 75 Vermont South to Central Pier service update available", "2024-05-17T10:50:00"],
+                    ["Route 35 City Circle provides convenient city touring experience", "2024-05-01T09:00:00"]
+                ];
+            }
+            
+            // 添加电车服务变更信息到弹幕数据（使用发布时间）
+            danmakuData = tramServiceChanges.map(([text, publishTime]) => {
+                const date = new Date(publishTime);
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                return `[${hours}:${minutes}] ${text}`;
+            });
+            
+            // 添加最近的报告描述和评论（如果有的话）
+            const now = new Date();
+            const recentReports = reports.filter(report => {
+                const reportTime = new Date(report.time);
+                return (now - reportTime) < (1000 * 60 * 60 * 24); // 24小时内的报告
+            }).slice(0, 5); // 最多取5条最新报告
+            
+            // 添加报告描述到弹幕数据
+            recentReports.forEach(report => {
+                if (report.description && report.description.trim()) {
+                    const reportTime = new Date(report.time);
+                    const hours = reportTime.getHours().toString().padStart(2, '0');
+                    const minutes = reportTime.getMinutes().toString().padStart(2, '0');
+                    const reportPrefix = currentLang === 'zh' ? "📝 用户报告" : "📝 User Report";
+                    danmakuData.push(`[${hours}:${minutes}] ${reportPrefix}: ${report.description}`);
+                }
+                
+                // 添加报告评论到弹幕数据
+                if (report.comments && report.comments.length > 0) {
+                    // 只取最新的2条评论
+                    report.comments.slice(-2).forEach(comment => {
+                        if (comment && comment.trim()) {
+                            const commentPrefix = currentLang === 'zh' ? "💬 评论" : "💬 Comment";
+                            danmakuData.push(addTimePrefix(`${commentPrefix}: ${comment}`));
+                        }
+                    });
+                }
+            });
+            
+            // 如果数据不足15条，补充一些默认信息
+            const defaultMsg = currentLang === 'zh' 
+                ? "YarraTrams: 访问PTV旅程规划工具，轻松规划您的出行路线" 
+                : "YarraTrams: Visit PTV journey planner to plan your tram travel";
+            
+            while (danmakuData.length < 15) {
+                danmakuData.push(addTimePrefix(defaultMsg));
+            }
+            
+            console.log("Updated danmaku data:", danmakuData);
+            
+            // 刷新弹幕显示
+            initDanmaku();
+        }
+
+        // 获取YarraTrams最新信息 - 更新为每天自动刷新
+        function fetchTramUpdates(showAlert = true) {
+            // 显示加载状态
+            const refreshBtn = document.getElementById('refreshTramUpdates');
+            const originalBtnText = refreshBtn.innerHTML;
+            refreshBtn.innerHTML = '<span>🔄</span> 加载中...';
+            refreshBtn.disabled = true;
+            
+            // 在实际应用中，这里会调用YarraTrams API
+            // 此处改为触发弹幕数据更新
+            setTimeout(() => {
+                // 更新弹幕数据
+                updateDanmakuData();
+                
+                // 恢复按钮状态
+                refreshBtn.innerHTML = originalBtnText;
+                refreshBtn.disabled = false;
+                
+                // 更新最后刷新时间
+                lastUpdateTime = new Date();
+                updateStatusDisplay();
+                
+                // 显示提示
+                if (showAlert) {
+                    alert(i18n[currentLang].updateSuccess || '电车信息已更新');
+                }
+            }, 1500);
+        }
+        
+        // 初始化弹幕系统
+        function initDanmaku() {
+            const container = document.getElementById('danmakuContainer');
+            
+            // 清空容器
+            container.innerHTML = '';
+            
+            // 如果没有弹幕数据，先更新
+            if (!danmakuData || danmakuData.length === 0) {
+                updateDanmakuData();
+            }
+            
+            // 循环发送弹幕
+            function loopDanmaku() {
+                danmakuData.forEach((text, index) => {
+                    setTimeout(() => {
+                        createDanmaku(text);
+                    }, index * 3000); // 每3秒发送一条
+                });
+                
+                // 循环间隔时间
+                setTimeout(loopDanmaku, danmakuData.length * 3000);
+            }
+            
+            // 创建单条弹幕
+            function createDanmaku(text) {
+                const danmaku = document.createElement('div');
+                danmaku.className = 'danmaku-item';
+                
+                // 根据内容设置不同的样式
+                if (text.includes('安全') || text.includes('警告') || text.includes('注意') || 
+                    text.includes('safety') || text.includes('warning') || text.includes('caution')) {
+                    danmaku.classList.add('safety');
+                } else if (text.includes('Bus') || text.includes('Route') || text.includes('电车') || 
+                           text.includes('tram') || text.includes('路线') || text.includes('stop') || 
+                           text.startsWith('Route ')) {
+                    danmaku.classList.add('service');
+                } else if (text.includes('YarraTrams:') || text.includes('公告') || text.includes('Disruption') || 
+                          text.includes('replace') || text.includes('closure')) {
+                    danmaku.classList.add('important');
+                } else if (text.startsWith('📝') || text.startsWith('💬')) {
+                    // 报告和评论的样式
+                    danmaku.classList.add(text.startsWith('📝') ? 'report' : 'comment');
+                }
+                
+                danmaku.textContent = text;
+                
+                // 改进垂直位置分配，创建几个通道以防止重叠，进一步增加通道间距
+                const channels = [15, 50, 85, 120, 140]; // 五个垂直位置通道，最底部通道上移，避免被截断
+                const channelIndex = Math.floor(Math.random() * channels.length);
+                const top = channels[channelIndex];
+                danmaku.style.top = `${top}px`;
+                
+                // 随机速度 (通过动画持续时间控制)
+                const speed = 12 + Math.random() * 8; // 12-20秒之间
+                danmaku.style.animationDuration = `${speed}s`;
+                
+                // 添加到容器
+                container.appendChild(danmaku);
+                
+                // 动画结束后移除
+                setTimeout(() => {
+                    danmaku.remove();
+                }, speed * 1000);
+            }
+            
+            // 开始循环弹幕
+            loopDanmaku();
+        }
+    </script>
+    <style>
+    #langSwitchBtn:hover {
+      background: #e6f0fa;
+      border-color: #005bb5;
+    }
+    @media (max-width: 600px) {
+      #langSwitchBtn {
+        top: 10px;
+        right: 10px;
+        font-size: 16px;
+        padding: 8px 16px 8px 12px;
+      }
+    }
+    </style>
+</body>
+</html> 
